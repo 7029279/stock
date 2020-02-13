@@ -1,3 +1,4 @@
+#import quandl
 import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
@@ -19,24 +20,23 @@ import csv
 infodf = pd.read_excel("./data/data_j.xls", encoding="SHIFT-JS")
 
 
-
-def ufo (time="now"):		
-	word = "四半期" #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+def ufo2(when="now"):
+	word ="業績予想"
 	searchurl = "https://resource.ufocatch.com/atom/tdnetx/query/{}".format(word)
 	print(searchurl)
+
 	response = requests.get(searchurl)
 	root = BeautifulSoup(response.content, "xml")
-
-	if time == "now":
+	if when == "now":
 		updated = root.find("entry").find("updated").text.split(sep="T")[0]
 	else: 
-		updated = time
+		updated = when
 	links = root.findAll("link")
 	xbrlpages = []
 
 	for a in links:
 		checker = False
-		if "ixbrl.htm" in a.get("href") and "Summary" in a.get("href"):
+		if "ixbrl.htm" in a.get("href"):
 			if "IFRS" in a.parent.find("title").string or "ＩＦＲＳ" in a.parent.find("title").string: 
 				continue
 			print(a.parent.find("updated").string)
@@ -47,154 +47,95 @@ def ufo (time="now"):
 				pass
 				if checker == True:
 					break 
-				# struture of xml 
-				# 01/10
-				# 01/09 if it has already gone to the targeted date and exits the zone, the loop breaks
 
 	return xbrlpages
-	
 
-def epsget (time_and_url):
-	if os.path.isfile("raw-xbrl1/{}-{}".format(time_and_url["update"].split("T")[0], time_and_url["href"].split("/")[-1])):
-		with open ("raw-xbrl1/{}-{}".format(time_and_url["update"].split("T")[0], 
-		time_and_url["href"].split("/")[-1]), "r") as f:
-			html = BeautifulSoup(f.read(),  "html.parser")
-	else:
-		html = BeautifulSoup(requests.get(time_and_url["href"]).content, "html.parser")
-		with open ("raw-xbrl1/{}-{}.htm".format(time_and_url["update"].split("T")[0],  
-		time_and_url["href"].split("/")[-1]), "w") as f:
-			f.write(html)
 
+def epsget2 (time_and_url):
+	html = BeautifulSoup(requests.get(time_and_url["href"]).content, "html.parser")
 	print (time_and_url["href"])
 	title = html.find("ix:nonnumeric", {"name":"tse-ed-t:DocumentName"}).parent.text
 	code = html.find("ix:nonnumeric", {"name":"tse-ed-t:SecuritiesCode"}).text
-	code = code[:-1]
-
+	if len(str(code)) == 5:
+		code = code[:-1]
 	companyname = html.find("ix:nonnumeric", {"name":"tse-ed-t:CompanyName"}).text
-	pure = html.find_all("ix:nonfraction", {"name":"tse-ed-t:NetIncomePerShare"}) # Earnings per share 
-	modified = html.find_all("ix:nonfraction" ,{"name":"tse-ed-t:DilutedNetIncomePerShare"}) # adjusted to the number after issuing more stocks if there was any
-
+	
+	eps = html.find_all("ix:nonfraction", {"name":"tse-ed-t:NetIncomePerShare"}) # Earnings per share 
 	dividend = html.find_all("ix:nonfraction" ,{"name":"tse-ed-t:DividendPerShare"}) # adjusted to the number after issuing more stocks if there was any
-	newinfo = html.find("ix:nonnumeric" ,{"name":"tse-ed-t:CorrectionOfConsolidatedFinancialForecastInThisQuarter"})
-	divi_newinfo = html.find("ix:nonnumeric" ,{"name":"tse-ed-t:CorrectionOfDividendForecastInThisQuarter"})
 
 	# they will have two elements, this year and last year 
-	
-	print (modified)
-	for year in pure:
-		if year == pure[0]:
-			if year.parent.name == "td":
-				this_pure_eps = year.parent.text
-			elif year.parent.parent.name == "td": 
-				this_pure_eps = year.parent.parent.text
-			elif year.parent.parent.parent.name == "td":
-				this_pure_eps = year.parent.parent.parent.text
-		
-		elif year == pure[1]:
-			if year.parent.name == "td":
-				last_pure_eps = year.parent.text
-			elif year.parent.parent.name == "td": 
-				last_pure_eps = year.parent.parent.text
-			elif year.parent.parent.parent.name == "td":
-				last_pure_eps = year.parent.parent.parent.text
-	
-	if len(modified) == 0:
-		this_mod_eps = this_pure_eps
-		last_mod_eps = last_pure_eps
 
-	for year in modified:
-		if year == modified[0]:
-			if year.parent.name == "td":
-				this_mod_eps = year.parent.text
-			elif year.parent.parent.name == "td":
-				this_mod_eps = year.parent.parent.text
-			elif year.parent.parent.parent.name == "td":
-				this_mod_eps = year.parent.parent.parent.text
-		elif year == modified[1]:
-			if year.parent.name == "td":
-				last_mod_eps = year.parent.text
-			elif year.parent.parent.name == "td":
-				last_mod_eps = year.parent.parent.text
-			elif year.parent.parent.parent.name == "td":
-				last_mod_eps = year.parent.parent.parent.text
+	for row in eps:
+		if "_ConsolidatedMember_PreviousMember_ForecastMember" in row["contextref"]:
+			old_expec = row.parent.text    ## 連結のほうがいいらしい
+		if "_ConsolidatedMember_CurrentMember_ForecastMember" in row["contextref"]:
+			new_expec = row.parent.text		
+		
+	if "old_expec" not in vars() or "new_expec" not in vars():  ##　個別
+		for row in eps:
+			if "_NonConsolidatedMember_PreviousMember_ForecastMember" in row["contextref"]:
+				old_expec = row.parent.text
+			elif "_NonConsolidatedMember_CurrentMember_ForecastMember" in row["contextref"]:
+				new_expec = row.parent.text
+	
+	if len(eps) == 0:
+		old_expec = "0"
+		new_expec = "0"
+		expec_change = 0
+
 
 	for row in dividend:
-		if "PriorYearDuration_AnnualMember_NonConsolidatedMember_ResultMember" in row["contextref"]:
-			if row.parent.name == "td":
-				old_divi = row.parent.text
-			elif row.parent.parent.name == "td":
-				old_divi = row.parent.parent.text
-			elif row.parent.parent.parent.name == "td":
-				old_divi = row.parent.parent.parent.text
-				
-		elif "CurrentYearDuration_AnnualMember_NonConsolidatedMember_ForecastMember" in row["contextref"]:
-			if row.parent.name == "td":
-				new_divi = row.parent.text			
-			elif row.parent.parent.name == "td":
-				new_divi = row.parent.parent.text
-			elif row.parent.parent.parent.name == "td":
-				new_divi = row.parent.parent.parent.text
-			
-	if divi_newinfo.parent.name == "span":
-		divi_newinfo = divi_newinfo.replace("（注）直近に公表されている配当予想からの修正の有無：", "").replace(" ", "")
+		if "_NonConsolidatedMember_PreviousMember_ForecastMember" in row["contextref"]:
+			old_divi = row.parent.text
+		elif "_NonConsolidatedMember_CurrentMember_ForecastMember" in row["contextref"]:
+			new_divi = row.parent.text
+	
+	
+	if len(dividend) == 0:
+		old_divi = "0"
+		new_divi = "0"
+		divi_change = 0
 
-	if newinfo == "span":
-		newinfo = newinfo.replace("（注）直近に公表されている業績予想からの修正の有無：", "").replace(" ", "")
-
-	if last_pure_eps == "－" or last_pure_eps == "-" or last_pure_eps == "―": # without last year's data, this stock is out of consideration
-		last_pure_eps = 0
-		this_year = 0 
-		last_year = 0
-		change = 0
-		rate = 0
-	elif this_pure_eps == "－" or this_pure_eps == "-" or this_pure_eps == "―": # without last year's data, this stock is out of consideration
-		last_mod_eps = 0
-		this_year = 0 
-		last_year = 0
-		change = 0
-		rate = 0
-	else:
-		if this_mod_eps == "―" or this_mod_eps == "－" or this_mod_eps == "-":
-			print("if   this_pure_eps  >>> ", this_pure_eps)
-			this_year = float(str(this_pure_eps).replace("△", "-").replace(" ", "").replace(",", "").replace("－", "-"))
-		else:
-			print("else   this_mod_eps  >>> ", this_mod_eps)
-			this_year = float(str(this_mod_eps).replace("△", "-").replace(" ", "").replace(",", "").replace("－", "-"))
-
-		if last_mod_eps == "―" or last_mod_eps == "－" or last_mod_eps == "-":
-			print("if   last_pure_eps  >>> ", last_pure_eps)
-			last_year = float(str(last_pure_eps).replace("△", "-").replace(" ", "").replace(",", "").replace("－", "-"))
-		else:
-			print("else   last_mod_eps  >>> ", last_mod_eps)
-			last_year = float(str(last_mod_eps).replace("△", "-").replace(" ", "").replace(",", "").replace("－", "-"))
-
-		change = this_year-last_year
-
-	if float(last_year) == 0:
-		rate = 0
-	else:
-		rate = abs(change/float(last_year))
-		if change < 0:
-			rate = rate*-1
-		else:
-			rate = float(rate)
-
-	if old_divi.replace(" ", "") == "－" or old_divi == "-" or old_divi == "―": # without last year's data, this stock is out of consideration
+	#print ("eps list   ", eps)
+	#print ("divi list  ", dividend)
+	
+	if old_expec == "－" or old_expec == "-" or old_expec == "―" or "～" in str(old_expec): # without last year's data, this stock is out of consideration
+		old_expec = 0 
+		new_expec = 0
+	if new_expec == "－" or new_expec == "-" or new_expec == "―" or "～" in str(new_expec): # without last year's data, this stock is out of consideration
+		old_expec = 0 
+		new_expec = 0
+	if old_divi == "－" or old_divi == "-" or old_divi == "―" or "～" in str(old_divi): # without last year's data, this stock is out of consideration
 		old_divi = 0 
 		new_divi = 0
-		divi_change = 0
-	elif new_divi.replace(" ", "") == "－" or new_divi == "-" or new_divi == "―": # without last year's data, this stock is out of consideration
-		new_divi = 0 
-		old_divi = 0
-		divi_change = 0
-	else:
-		old_divi = float(str(old_divi).replace("△", "-").replace(" ", "").replace(",", "").replace("－", "-"))
-		new_divi = float(str(new_divi).replace("△", "-").replace(" ", "").replace(",", "").replace("－", "-"))
-		divi_change = new_divi - old_divi
+	if new_divi == "－" or new_divi == "-" or new_divi == "―" or "～" in str(new_divi): # without last year's data, this stock is out of consideration
+		old_divi = 0 
+		new_divi = 0
+	
+	old_expec = str(old_expec).replace("△", "-").replace(" ", "").replace(",", "").replace("－", "-")
+	new_expec =  str(new_expec).replace("△", "-").replace(" ", "").replace(",", "").replace("－", "-")
 
-	return {"title":title, "update": time_and_url["update"], "code": code, "companyname":companyname,
-	"this_year":this_year, "last_year":last_year, "change":change,"rate":rate, "newinfo":newinfo, 
-	"old_divi":old_divi, "new_divi":new_divi, "divi_change":divi_change, "divi_newinfo":divi_newinfo}
+	old_divi = str(old_divi).replace("△", "-").replace(" ", "").replace(",", "").replace("－", "-")
+	new_divi = str(new_divi).replace("△", "-").replace(" ", "").replace(",", "").replace("－", "-")
+	
+	new_expec = float(new_expec)
+	old_expec = float(old_expec)
+	new_divi = float(new_divi)
+	old_divi = float(old_divi)
+
+	expec_change = new_expec-old_expec
+	divi_change = new_divi-old_divi
+
+	if old_expec == 0:
+		expec_change_rate = 0
+	else:
+		expec_change_rate = abs(expec_change/old_expec)
+		if expec_change < 0:
+			expec_change*-1
+		else:
+			expec_change_rate = float(expec_change_rate)
+
+	return title, time_and_url["update"], code, companyname, old_expec, new_expec, expec_change, old_divi, new_divi, divi_change, expec_change_rate
 
 
 def pricefromcsv(code, day):
@@ -293,38 +234,8 @@ def download (date):
 			print ("downlaod unsuccessful, exiting")
 			exit()
 
-def ordinaryaverage ():
-	code = {}
-	"""
-	for a in ["08", "09","10","14","15","16"]:
-		average = []
-		day = "T2001"+a
-		df = pd.read_csv("./data/stockdaily/{}.csv".format(day),  encoding="SHIFT-JIS")
-		df.fillna(0, inplace=True)
-		for b in range(len(list(df.index.values))):
-			if int(df.iloc[b, 4]) == 0 or int(df.iloc[b, 7]) == 0:
-				continue
-			print(df.iloc[b])
-			code[a].append({"code":int(df.iloc[b, 1]), 
-			"starting":int(df.iloc[b, 4]), "ending":int(df.iloc[b, 7]),
-			"gain":int(df.iloc[b, 7])-int(df.iloc[b, 4])})
-
-
-	
-	with open ("./averages.json", "w") as f:
-		json.dump(code, f, indent=2, ensure_ascii=False)
-	"""
-
-	with open ("./averages.json", "r") as f:
-		read = json.load(f)
-		for a in read:
-			average = []
-			for b in read[a]:
-				average.append(int(b["gain"]))
-			print (sum(average)/len(average))
-	
 def price2 (code, updated_at, title, date, company, 
-rate, this, last, change, old_divi, new_divi,divi_change, newinfo):
+old_expec, new_expec, expec_change, old_divi, new_divi, divi_change, expec_change_rate):
 	
 	year = date.split("-")[0]
 	mon = date.split("-")[1]
@@ -420,14 +331,9 @@ rate, this, last, change, old_divi, new_divi,divi_change, newinfo):
 		"industry17": industry17,
 		"scale": scale,
 
-		"rate":rate,
-		"change":change,
-		"new":this, 
-		"old":last, 
-		"old_divi":old_divi,
-		"new_divi": new_divi,
-		"divi_change":divi_change,
-		"newinfo": newinfo,
+		"old": old_expec, "new":new_expec, "change":expec_change, 
+		"old_divi": float(old_divi), "new_divi":float(new_divi), "divi_change":float(divi_change), 
+		"rate": expec_change_rate,
 
 		"on_starting": int(on_starting), "on_ending": int(on_ending), 
 		"on_high": on_high, "before_high": before_high, "next_high":next_high,
@@ -445,8 +351,7 @@ rate, this, last, change, old_divi, new_divi,divi_change, newinfo):
 		"twoday_return": twoday_return, "max_return": max_return}
 	
 	
-	
-def price(code, date, this, last, rate, company):
+def price(code, date, this, last, rate, company): #not using
 	if "Linux" in platform.system():
 		driver_path = "./drivers/linux/chromedriver"
 	elif "Mac" in platform.system():
@@ -490,7 +395,7 @@ def price(code, date, this, last, rate, company):
 	today = list(pricedf.index.values).index(date)
 	before = pricedf.index.values[today-1]
 	next = pricedf.index.values[today+1]
-	next2 = pricedf.index.values[today- 1]
+	next2 = pricedf.index.values[today-1]
 
 	#print (before, next, next2)
 	on_starting = pricedf.at[date,"Unnamed: 1"] #始値
@@ -535,56 +440,65 @@ def price(code, date, this, last, rate, company):
 		"threeday_gain": int(next2_ending) - int(on_starting)}
 
 
-def main (when= "2020-01-17"):
-	##price ("8925", "2019-12-13")
-	##exit()
-	
+def main (when ="2020-01-17"):
 	data = []
 	pricelist = []
 	
-	if os.path.isfile("results/{}-lv1.json".format(when)) == True:
+	
+	if os.path.isfile("results2/{}-lv1.json".format(when)) == True:
 		pass
 	else:
-		pages = ufo(when) #def ufo (time="now"): time example >>> 2020-01-10
+		pages = ufo2(when) #def ufo (time="now"): time example >>> 2020-01-10
+		print ("len pages, in main", len(pages), when)
 		if len(pages) == 0:
-			print ("0 report on ", when)
+			print ("0 report on ", when,)
 			return
-		for page in pages: 
-			results= epsget(page) #	return title, code, companyname, this_year, last_year
-			data.append({"title": results["title"], "updated_at":results["update"], "code":results["code"],
-			"company": results["companyname"], "this_year":results["this_year"],"last_year":results["last_year"], 
-			"change":results["change"], "rate": results["rate"], "old_divi": results["old_divi"],"new_divi":results["new_divi"],
-			"divi_change": results["divi_change"], "newinfo":results["newinfo"],
-			"newinfo":results["newinfo"], "newinfo":results["newinfo"], "divi_newinfo":results["divi_newinfo"]})
-		
-		with open ("results/{}-lv1.json".format(when), "w") as f:
+		for page in pages:     
+			title, update, code, companyname, old_expec, new_expec, expec_change, old_divi, new_divi, divi_change, expec_change_rate = epsget2(page)
+		#return title, time_and_url["update"], code, companyname, old_expec, new_expec, ## epsget2()
+		# expec_change, old_divi, new_divi, divi_change, expec_change_rate
+			data.append({"title": title, "updated_at":update, "code":code,"company": companyname, 
+				"old_expec":old_expec, "new_expec": new_expec, "expec_change":expec_change, "expec_change_rate": expec_change_rate,
+				"old_divi":old_divi, "new_divi":new_divi, "divi_change":divi_change})
+
+		with open ("results2/{}-lv1.json".format(when), "w") as f:
 			json.dump(data, f, indent=2, ensure_ascii=False)
 
-	with open ("results/{}-lv1.json".format(when)) as f:
+	with open ("results2/{}-lv1.json".format(when), "r") as f:
 		data = json.load(f)
-		for a in data: #price2 (code, updated_at, title, date, company, rate, this, last):
-			results = price2(a["code"], date=when, updated_at=a["updated_at"], company=a["company"],
-			title=a["title"],  this=a["this_year"], last=a["last_year"], change=a["change"], rate=a["rate"], 
-			old_divi= a["old_divi"],new_divi=a["new_divi"],divi_change=a["divi_change"], newinfo=a["newinfo"])
-			pricelist.append(results)
-			#print (results)
-			print ("yessssssssssssssssssssssssssssssssssssssssssssssssss")
-			
+
+	for a in data:
+		results = price2(a["code"], a["updated_at"], a["title"], when, company=a["company"], 
+        old_expec=a["old_expec"], new_expec=a["new_expec"], expec_change=a["expec_change"], 
+		old_divi=a["old_divi"], new_divi=a["new_divi"], divi_change=a["divi_change"], 
+		expec_change_rate=a["expec_change_rate"])
+
+		pricelist.append(results)
+		#print (results)
+		print ("yessssssssssssssssssssssssssssssssssssssssssssssssss")
 		
-	with open ("results/{}-lv2.json".format(when), "w") as f:
+		
+
+	with open ("results2/{}-lv2.json".format(when), "w") as f:
 		json.dump(pricelist, fp=f, indent=2, ensure_ascii=False)
 		
 	
-	with open ("results/{}-lv2.json".format(when), "r") as f:
+	with open ("results2/{}-lv2.json".format(when), "r") as f:
 		X = []
 		Y = []
 		for a in json.load(f):
-			if a["rate"] <= 0:
+			print (a["rate"])
+			if a["change"] <= 0:
 				continue
-			if  a["change"] < 0:
+			if  a["rate"] < 0:
 				continue
 		
-
+			print ("old_expec >>>>     ", a["old"])	
+			print ("new_expec >>>>     ", a["new"])
+			print ("expec_change >>>   ", a["change"])
+			print ("expec_change_rate> ", a["rate"], "****")
+			print ("divi_change >>>    ", a["divi_change"])
+			print ("updated_at >>>     ", a["updated_at"])
 			print ("daybefore_gain >>> ", a["daybefore_gain"])
 			print ("start >>>          ", a["on_starting"])
 			print ("ending >>>         ", a["on_ending"])
@@ -595,8 +509,8 @@ def main (when= "2020-01-17"):
 			print ("trade_return >>>     ", a["trade_return"], "****")
 			print ("twoday_return >>   ", a["twoday_return"])
 			print ("====================================")
-			X.append(a["change"])
-			Y.append(a["trade_return"])
+			X.append(a["rate"])
+			Y.append(a["max_return"])
 		if len(X) == 0:
 			pass
 		else:			
@@ -604,98 +518,55 @@ def main (when= "2020-01-17"):
 			print ("corre    ", np.corrcoef(X, Y)[0][1])
 			print ("average of Y   ", sum(Y)/len(Y))
 	
-def integrate (when):
-	read1 = []
-	read2 = []
-	data = []
-	counter = 0
-
-	if os.path.isfile("results2/{}-lv2.json".format(when)) == True:
-		with open ("results2/{}-lv2.json".format(when), "r") as f:
-			read2 = json.load(f)
-
-	if os.path.isfile("results/{}-lv2.json".format(when)) == True:
-		with open ("results/{}-lv2.json".format(when), "r") as f:
-			read1 = json.load(f)
-	
-	for two in read2:
-		for one in read1:
-			if two["code"] == one["code"]:
-				counter = counter +1
-		
-	for two in read2:				
-		two["report_type"] = "修正"
-		two["new"] =float(two["new"])
-		two["old"] =float(two["old"])
-
-		data.append(two)
-
-	for one in read1:
-		one["report_type"] = "四半期"
-		one["new"] =float(one["new"])
-		one["old"] =float(one["old"])
-		data.append(one)
-	
-	with open ("results3/{}.json".format(when), "w") as f:
-		json.dump (data, f, indent=2, ensure_ascii=False)
-	print (when)
-			
 		
 	
+	"""
+	for a in range (15, 23):
+		if len(str(a)) == 1:
+			a = "0"+str(a)
+		date = "2020-01-{}".format(a)
+		price2 (9636, date, this=0, last=0, rate=0, company=0)
+	
+	
+	with open ("results2/{}-lv1.json".format(when), "r") as f:
+		read = json.load(f)
+	for a in read:
+		code = a["code"]
+		a["on_starting"] = price2 (code, time, this=0, last=0, rate=0, company="aaa")["on_starting"]
+		a["on_ending"] = price2 (code, time, this=0, last=0, rate=0, company="aaa")["on_ending"]
+		a["before_starting"] = price2 (code, time, this=0, last=0, rate=0, company="aaa")["before_starting"]
+		a["before_ending"] = price2 (code, time, this=0, last=0, rate=0, company="aaa")["before_ending"]
+		a["next_starting"] = price2 (code, time, this=0, last=0, rate=0, company="aaa")["next_starting"]
+		a["next_ending"] = price2 (code, time, this=0, last=0, rate=0, company="aaa")["next_ending"]
+		a["oneday_gain"] = price2 (code, time, this=0, last=0, rate=0, company="aaa")["oneday_gain"]
+		a["daybefore_gain"] = price2 (code, time, this=0, last=0, rate=0, company="aaa")["daybefore_gain"]
+		a["twoday_gain"] = price2 (code, time, this=0, last=0, rate=0, company="aaa")["twoday_gain"]
+
+		
+	#ordinaryaverage()
+
+	with open ("results2/{}-lv2.json".format(time), "w") as f:
+		json.dump(pricelist, fp=f, indent=2, ensure_ascii=False)
+	
+	
+	
+	for a in range (1, 30):
+		
+		when = "2019-12-{:02d}".format(a)
+		download(when)
+	"""
 if __name__ == "__main__":
-	main("2019-12-13")
-	exit()
-	counter = 0
-	counter_ = 0
-
-	for mon in ["2019-11", "2019-12","2020-01"]:
+	#main ()
+	
+	for mon in ["2019-11", "2019-12", "2020-01"]:
 		for a in range (1, 31):
 			when = "{}-{:02d}".format(mon, a)
-			#if when == "{}{:02d}{:02d}".format(datetime.datetime.now().year, 
-			#datetime.datetime.now().month, datetime.datetime.now().day):
-			if when == "2020-01-25":
+			if when == "{}{:02d}{:02d}".format(datetime.datetime.now().year, 
+			datetime.datetime.now().month, datetime.datetime.now().day):
 				break
-			#time.sleep (random.randint (10, 30))
-			#main(when)
-			#integrate(when)
-			
-			"""
-			with open ("results3/{}.json".format(when), "r") as f:
-				read = json.load(f)
-			for a in read:
-				if float(0) not in [a["buy_values"][0], a["buy_values"][1], a["new"], a["old"]]:
-				#if float(0) not in [float(a["buy_values"][0]), float(a["buy_values"][1]), float(a["new"]), float(a["old"])]:
-					print (when, a["code"])
-					counter = counter + 1
-					print ("0 not in", float(a["buy_values"][0]), float(a["buy_values"][1]), 
-					float(a["new"]), float(a["old"]))
-				else:
-					counter_ = counter_ +1
-					print ("0 in", float(a["buy_values"][0]), float(a["buy_values"][1]), 
-					float(a["new"]), float(a["old"]))
-"""
-
-	print (counter, counter_)
-
-
-
-
-
-
+			main(when)
 	
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+		
+	
